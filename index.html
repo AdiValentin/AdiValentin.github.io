@@ -2,63 +2,86 @@
 <html lang="ro">
 <head>
   <meta charset="UTF-8">
-  <title>Control LED - Blynk</title>
+  <title>Control & OTA ESP8266</title>
   <style>
-    body {
-      background-color: #f2f2f2;
-      font-family: Arial, sans-serif;
-      text-align: center;
-      margin-top: 100px;
-    }
-    h1 {
-      color: #333;
-    }
-    .btn {
-      padding: 15px 30px;
-      font-size: 20px;
-      margin: 20px;
-      border: none;
-      border-radius: 10px;
-      cursor: pointer;
-    }
-    .on {
-      background-color: #4CAF50;
-      color: white;
-    }
-    .off {
-      background-color: #f44336;
-      color: white;
-    }
+    body { background:#f2f2f2; font-family:Arial; text-align:center; padding-top:60px }
+    h1   { color:#333 }
+    .btn { padding:15px 30px; font-size:20px; margin:20px; border:none; border-radius:10px; cursor:pointer }
+    .on  { background:#4caf50; color:#fff } .off { background:#f44336; color:#fff }
+
+    /* cutia OTA */
+    #drop { width:600px; max-width:90%; height:260px; margin:40px auto; border:3px dashed #888;
+            display:flex; align-items:center; justify-content:center; flex-direction:column; background:#fff }
+    #drop.drag { border-color:#4caf50 }
+    #ip { width:200px; padding:6px 10px; font-size:16px; margin-bottom:10px }
+    progress { width:80%; height:18px; margin-top:20px }
+
+    @media(max-width:600px){ #drop{height:200px} }
   </style>
 </head>
 <body>
   <h1>Control LED prin Blynk Cloud</h1>
 
-  <button class="btn on" onclick="aprindeLED()">Aprinde LED</button>
-  <button class="btn off" onclick="stingeLED()">Stinge LED</button>
+  <button class="btn on"  onclick="toggleLED(1)">Aprinde LED</button>
+  <button class="btn off" onclick="toggleLED(0)">Stinge LED</button>
 
-  <script>
-    function aprindeLED() {
-      fetch('https://blynk.cloud/external/api/update?token=XYYoG-NWdMvYksGyqn_SFYzwYihNp_Cz&V0=1')
-        .then(response => {
-          if (response.ok) {
-            alert("LED aprins!");
-          } else {
-            alert("Eroare la aprindere!");
-          }
-        });
-    }
+  <div id="drop">
+      <p><strong>Urcă firmware nou (.bin)</strong></p>
+      <input id="ip" placeholder="IP placă (ex: 192.168.1.102)">
+      <input id="file" type="file" accept=".bin" style="display:none">
+      <button class="btn" onclick="file.click()">Selectează fișier</button>
+      <progress id="bar" value="0" max="100" hidden></progress>
+  </div>
 
-    function stingeLED() {
-      fetch('https://blynk.cloud/external/api/update?token=XYYoG-NWdMvYksGyqn_SFYzwYihNp_Cz&V0=0')
-        .then(response => {
-          if (response.ok) {
-            alert("LED stins!");
-          } else {
-            alert("Eroare la stingere!");
-          }
-        });
-    }
-  </script>
+<script>
+const token = "XYYoG-NWdMvYksGyqn_SFYzwYihNp_Cz";               // Blynk token
+function toggleLED(v){
+  fetch(`https://blynk.cloud/external/api/update?token=${token}&V0=${v}`)
+      .then(r=>alert(r.ok? (v?"LED aprins!":"LED stins!"):"Eroare Blynk"));
+}
+
+/* ----------  OTA upload  ---------- */
+const drop = document.getElementById('drop');
+const bar  = document.getElementById('bar');
+const file = document.getElementById('file');
+['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{
+  ev.preventDefault(); drop.classList.add('drag');
+}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{
+  ev.preventDefault(); drop.classList.remove('drag');
+}));
+drop.addEventListener('drop', ev=>{
+  if(ev.dataTransfer.files.length) startUpload(ev.dataTransfer.files[0]);
+});
+file.onchange=e=>startUpload(file.files[0]);
+
+function startUpload(f){
+  const ip = document.getElementById('ip').value || 'esp8266.local';
+  if(!f) return;
+  const url = `http://${ip}/update`;
+  const formData = new FormData(); formData.append('firmware',f);
+  bar.hidden=false; bar.value=0;
+
+  fetch(url, { method:'POST', body:formData })
+    .then(r=>{
+      if(!r.ok) throw 'Upload HTTP error';
+      bar.value = 100; alert('Firmware trimis! Placa va reporni.');
+    })
+    .catch(err=> alert('Eșec OTA: '+err));
+}
+
+/* actualizare progres (fetch stream) – simplificat */
+const _fetch = window.fetch;
+window.fetch = function(url, opts){
+  if(opts && opts.body instanceof FormData){
+    const xhr = new XMLHttpRequest();
+    xhr.open(opts.method||'POST',url);
+    xhr.upload.onprogress = e=> bar.value = e.lengthComputable ? e.loaded/e.total*100 : 0;
+    xhr.onload = ()=> opts.body=null;          // reduce mem.
+    xhr.send(opts.body); return Promise.resolve({ok:xhr.status===200});
+  }
+  return _fetch.apply(this,arguments);
+};
+</script>
 </body>
 </html>
